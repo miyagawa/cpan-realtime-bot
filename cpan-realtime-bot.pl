@@ -55,14 +55,18 @@ sub parse_recent {
     my $body = shift;
     my $data = YAML::Load($body);
 
+    my $found = 0;
     for my $item (sort { $a->{epoch} <=> $b->{epoch} } @{$data->{recent}}) {
         if ($item->{epoch} > $last_event) {
             $last_event = $item->{epoch};
             if ($item->{type} eq 'new' && $item->{path} =~ /\.tar\.gz$/ && !$done{$item->{path}}++) {
                 got_new_file($item->{path});
+                $found++;
             }
         }
     }
+
+    publish_pings() if $found;
 
     utime $last_event, $last_event, $stat_file;
 }
@@ -86,4 +90,14 @@ sub got_new_file {
     http_post "http://friendfeed-api.com/v2/entry", $body, headers => $headers, sub {
         warn $_[0];
     };
+}
+
+sub publish_pings {
+    my %form = ("hub.mode" => 'publish', "hub.url" => "http://friendfeed.com/cpan?format=atom");
+    my $body = join "&", map { "$_=" . URI::Escape::uri_escape($form{$_}) } keys %form;
+    for my $hub (qw( http://pubsubhubbub.appspot.com/ http://superfeedr.com/hubbub )) {
+        http_post $hub, $body, sub {
+            warn "$hub:$_[1]->{Status}";
+        }
+    }
 }
